@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Model weights & checkpoints
+*.pdparams
+*.pdopt
+*.pth
+*.pt
+*.ckpt
+outputs/
+
+# Data
+*.jpg
+*.jpeg
+*.png
+*.bmp
+data/
+datasets/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Logs
+*.log
