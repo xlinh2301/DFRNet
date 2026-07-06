@@ -92,9 +92,8 @@ def main():
     # ── Model ──────────────────────────────────────────────────────────
     model = DFRNet(
         backbone_cfg=model_cfg["backbone"],
-        neck_cfg=model_cfg["neck"],
-        ctc_out_channels=model_cfg["ctc_out_channels"],
-        ctc_fc_decay=model_cfg.get("ctc_fc_decay", 1e-5),
+        svtr_cfg=model_cfg["svtr"],
+        num_classes=model_cfg.get("num_classes", 11),
         ofr_nhead=model_cfg.get("ofr_nhead", 4),
         ofr_depth=model_cfg.get("ofr_depth", 2),
         T=model_cfg.get("T", 1000),
