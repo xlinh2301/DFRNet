@@ -145,3 +145,43 @@ nothing in the loss ever asks the *encoder* (the only thing active at
 inference) to handle corrupted-and-unrecovered input directly. The LR bug
 was real and worth fixing, but it was not the reason for DFRNet's lack of
 measurable contribution — the architectural mismatch is.
+
+## Results: image-space Cutout vs feature-space corruption
+
+Hypothesis: `dfrnet.corruption.OcclusionDiffusionCorruption` corrupts the
+*encoder's output feature* (zeroing token spans, adding Gaussian noise to a
+120-d latent vector) — an out-of-distribution perturbation the backbone
+would never actually produce from a real occluded image. Real occlusion
+(dirt, glare, a finger) is a pixel-level phenomenon; corrupting the raw
+image before the backbone should propagate a more realistic, in-distribution
+corruption pattern into the features, letting the encoder itself learn
+robustness without a separate OFR module.
+
+Implemented `dfrnet/img_augment.py::random_cutout` (random rectangular
+patches zeroed on the input image, `p=0.5`, up to 2 patches, side =
+15% of `min(H, W)`), applied in the training loop before the backbone.
+Trained `configs/dfrnet_imgocc.yaml` (same as the baseline config —
+`lambda_aux=0`, `beta_rec=0`, no OFR — plus `Train.image_cutout`), 15 epochs.
+
+| Model                       | clean (acc) | light (acc) | heavy (acc) |
+|------------------------------|:-----------:|:-----------:|:-----------:|
+| Baseline (fine-tune, no aug)  | 91.34%      | 3.19%       | 0.00%       |
+| DFRNet (LR bug fixed)         | 91.57%      | 2.28%       | 0.00%       |
+| **imgocc (image Cutout)**     | 91.80%      | **1.37%**   | 0.00%       |
+
+**imgocc scored *worse* under this eval, not better.** But this is a
+methodology mismatch, not evidence against the hypothesis: `tools/eval_ablation.py`
+measures robustness by corrupting the **encoder's feature** at test time
+(same mechanism as `OcclusionDiffusionCorruption`) — the imgocc model never
+saw that kind of corruption during training, so it has no reason to be
+robust to it. The eval is testing exactly the corruption *type* the
+hypothesis argues is unrealistic; using it to evaluate a model trained
+against a different (image-space) corruption type doesn't test the
+hypothesis at all.
+
+**To fairly test "does image-space occlusion training transfer to real
+occlusion robustness"**, `tools/eval_ablation.py` needs an image-space
+occlusion mode (Cutout patches applied to the *test image* before the
+backbone, not to the encoder's feature) to compare imgocc vs. baseline vs.
+DFRNet on equal footing. Not yet implemented — flagged as the next step
+before drawing a conclusion on the image-space-augmentation hypothesis.
