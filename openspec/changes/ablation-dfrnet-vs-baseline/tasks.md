@@ -97,3 +97,51 @@ directly reward the *encoder* for producing occlusion-robust features
 usable without OFR recovery (e.g. an additional loss term decoding the
 corrupted-but-unrecovered feature through the shared head), rather than only
 rewarding OFR's recovery quality.
+
+## Results after optimizer LR fix
+
+While investigating *why* OFR wasn't contributing, found a real bug in
+`train.py::build_optimizer`: Paddle's `AdamW` treats the `learning_rate` key
+inside each parameter group as a **scale factor** on the global
+`learning_rate=scheduler` value, not an absolute rate. The code was passing
+absolute rates (`backbone_lr`, `base_lr`) into that slot, so the *effective*
+learning rate was the scheduler value multiplied by itself again — roughly
+1000x smaller than intended for the OFR/head group, ~10,000x smaller for the
+backbone group. This explains why `loss_rec` was dead flat (~7.4-7.6) in
+every prior run regardless of `lambda_aux`/`beta_rec` weight or diffusion
+`t`-range: the model was effectively frozen.
+
+Fixed by passing per-group **ratios** (`backbone_lr_ratio`, `1.0`) instead of
+absolute rates (`train.py` commit `ce5861b`). Verified the fix directly:
+retraining `configs/dfrnet_smoke.yaml` (unmodified `t` range, original loss
+weights) now shows `loss_rec` dropping from ~7.56 to ~2.2-2.5 within the
+first epoch and staying there — OFR is now demonstrably learning to
+reconstruct, confirming the LR bug (not the diffusion `t`-range) was the
+actual cause of the flat `loss_rec`.
+
+Reran the baseline + DFRNet training (15 epochs each, same config, LR bug
+fixed) and the full 3-way test-set ablation:
+
+| Model                       | clean (acc) | light (acc) | heavy (acc) |
+|------------------------------|:-----------:|:-----------:|:-----------:|
+| PPOCRv5 zero-shot             | 92.26%      | 2.96%       | 0.00%       |
+| Baseline (fine-tune, no OFR)  | 91.34%      | 3.19%       | 0.00%       |
+| DFRNet (OFR, LR bug fixed)    | 91.57%      | 2.28%       | 0.00%       |
+
+**DFRNet still does not outperform baseline** — clean accuracy is within
+noise of both baseline and zero-shot, and DFRNet is *slightly worse* than
+baseline under light occlusion (2.28% vs 3.19%). Heavy occlusion again
+collapses to 0% for every model (t=1000 destroys essentially all encoder
+signal, independent of training).
+
+**Updated verdict**: fixing the LR bug fixed OFR's own training signal
+(`loss_rec` now converges — OFR really can reconstruct clean features from
+corrupted ones when queried directly), but this made **no difference** to
+downstream accuracy, because eval bypasses OFR entirely to match real
+deployment (OFR is training-only by design). This is exactly the
+train/eval-scenario mismatch identified earlier: OFR getting better at its
+own reconstruction objective doesn't transfer to encoder robustness, since
+nothing in the loss ever asks the *encoder* (the only thing active at
+inference) to handle corrupted-and-unrecovered input directly. The LR bug
+was real and worth fixing, but it was not the reason for DFRNet's lack of
+measurable contribution — the architectural mismatch is.
