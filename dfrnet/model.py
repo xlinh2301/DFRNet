@@ -76,9 +76,13 @@ class DFRNet(nn.Layer):
         T: int = 1000,
         mask_ratio_max: float = 0.5,
         span_len: int = 3,
+        train_t_max: int | None = None,
         pretrained: str | None = None,
     ):
         super().__init__()
+        # cap sampled t during training so OFR never has to invert
+        # near-pure-noise corruption (unlearnable in a single feed-forward pass)
+        self.train_t_max = train_t_max if train_t_max is not None else T
 
         # ── PPOCRv5 backbone ───────────────────────────────────────────
         cfg = dict(backbone_cfg)
@@ -210,7 +214,7 @@ class DFRNet(nn.Layer):
             return F.softmax(logits, axis=2)
 
         B = F_clean.shape[0]
-        t = paddle.randint(1, self.T + 1, shape=[B])
+        t = paddle.randint(1, self.train_t_max + 1, shape=[B])
 
         F_t, _ = self.corruption(F_clean, t)
         F_hat = self.ofr(F_t, t)

@@ -1,0 +1,52 @@
+Model:
+  backbone:
+    name: PPLCNetV3
+    scale: 0.95
+  svtr:
+    # Must match head.ctc_encoder params in the checkpoint
+    dims: 120
+    depth: 2
+    hidden_dims: 120
+    kernel_size: [1, 3]
+    use_guide: true
+  num_classes: 11          # digits 0-9 + blank
+  ofr_nhead: 4             # 120 / 4 = 30 per head
+  ofr_depth: 2
+  T: 1000
+  train_t_max: 500         # cap training-time t so OFR never sees near-pure-noise
+                           # corruption (unlearnable in a single feed-forward pass) —
+                           # tests whether loss_rec can actually converge
+  mask_ratio_max: 0.5
+  span_len: 3
+  pretrained: "data/checkpoints/release/ppocr_v5_paddle/best_accuracy.pdparams"
+
+Loss:
+  lambda_aux: 0.5
+  beta_rec: 0.1
+  blank_idx: 0
+
+Train:
+  epochs: 15               # matches configs/dfrnet_smoke.yaml for a fair comparison
+  batch_size: 32
+  learning_rate: 5.0e-4
+  weight_decay: 3.0e-5
+  warmup_epochs: 5
+  backbone_lr_ratio: 0.1   # backbone+ctc_encoder get 10x lower lr
+  data_dir: "data"
+  label_file: "data/gt/rec/rec_gt_train.txt"
+  image_shape: [3, 64, 256]
+  max_text_length: 25
+  num_workers: 4
+
+Eval:
+  data_dir: "data"
+  label_file: "data/gt/rec/rec_gt_val.txt"
+  image_shape: [3, 64, 256]
+  max_text_length: 25
+  batch_size: 32
+  num_workers: 4
+
+Save:
+  save_dir: "./outputs/dfrnet_tcap"
+  save_epoch_step: 1
+  eval_step: 50

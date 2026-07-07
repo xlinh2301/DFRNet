@@ -100,6 +100,7 @@ def main():
         T=model_cfg.get("T", 1000),
         mask_ratio_max=model_cfg.get("mask_ratio_max", 0.5),
         span_len=model_cfg.get("span_len", 3),
+        train_t_max=model_cfg.get("train_t_max"),
         pretrained=model_cfg.get("pretrained"),
     )
 
