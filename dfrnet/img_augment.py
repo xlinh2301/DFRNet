@@ -12,6 +12,8 @@ space, training the encoder itself to be robust (no separate refinement
 module needed).
 """
 
+import random
+
 import paddle
 
 
@@ -37,11 +39,11 @@ def random_cutout(
 
     out = images.clone()
     for b in range(B):
-        if float(paddle.rand([1])) > p:
+        if random.random() > p:
             continue
-        n = int(paddle.randint(1, num_patches + 1, shape=[1]))
+        n = random.randint(1, num_patches)
         for _ in range(n):
-            y = int(paddle.randint(0, max(1, H - side + 1), shape=[1]))
-            x = int(paddle.randint(0, max(1, W - side + 1), shape=[1]))
+            y = random.randint(0, max(0, H - side))
+            x = random.randint(0, max(0, W - side))
             out[b, :, y : y + side, x : x + side] = 0.0
     return out
