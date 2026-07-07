@@ -3,7 +3,7 @@ DFRNet: Diffusion Feature Refinement Network for Occluded Scene Text Recognition
 
 Checkpoint key mapping (PPOCRv5 best_accuracy.pdparams):
   backbone.*           → self.backbone.*
-  head.ctc_encoder.*   → self.ctc_encoder.*   (EncoderWithSVTR, dim=120)
+  head.ctc_encoder.encoder.* → self.ctc_encoder.*   (EncoderWithSVTR, dim=120)
   head.ctc_head.fc.*   → self.ctc_fc.*        (Linear 120 → 11)
   head.gtc_head.*      → (skipped, NRTR not used)
   head.before_gtc.*    → (skipped)
@@ -127,7 +127,7 @@ class DFRNet(nn.Layer):
         matched, skipped = {}, []
 
         remap_prefix = {
-            "head.ctc_encoder.": "ctc_encoder.",
+            "head.ctc_encoder.encoder.": "ctc_encoder.",
             "head.ctc_head.fc.": "ctc_fc.",
         }
 

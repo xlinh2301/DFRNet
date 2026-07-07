@@ -6,6 +6,7 @@ Usage:
 """
 
 import argparse
+import logging
 import os
 import sys
 
@@ -37,10 +38,10 @@ def build_optimizer(model: DFRNet, cfg: dict) -> optim.Optimizer:
     wd = cfg.get("weight_decay", 3e-5)
 
     backbone_neck_params = (
-        list(model.backbone.parameters()) + list(model.neck.parameters())
+        list(model.backbone.parameters()) + list(model.ctc_encoder.parameters())
     )
     ofr_head_params = (
-        list(model.ofr.parameters()) + list(model.ctc_head.parameters())
+        list(model.ofr.parameters()) + list(model.ctc_fc.parameters())
     )
 
     scheduler = paddle.optimizer.lr.CosineAnnealingDecay(
@@ -66,8 +67,8 @@ def evaluate(model: DFRNet, val_loader, post_process, metric):
         images, labels = batch[0], batch[1]
         with paddle.no_grad():
             logits = model(images)
-        post_result = post_process(logits)
-        metric(post_result, labels)
+        preds, targets = post_process(logits, label=labels.numpy())
+        metric((preds, targets))
     result = metric.get_metric()
     model.train()
     return result
@@ -114,59 +115,76 @@ def main():
 
     # ── Data ───────────────────────────────────────────────────────────
     # Re-use PaddleOCR's data pipeline for minimal code duplication
+    logger = logging.getLogger("dfrnet")
+    logging.basicConfig(level=logging.INFO)
+
+    global_cfg = {
+        "max_text_length": train_cfg["max_text_length"],
+        "character_dict_path": train_cfg.get(
+            "character_dict_path", "configs/digits_dict.txt"
+        ),
+        "use_space_char": False,
+    }
+
     train_dataloader = build_dataloader(
         {
-            "dataset": {
-                "name": "SimpleDataSet",
-                "data_dir": train_cfg["data_dir"],
-                "label_file_list": [train_cfg["label_file"]],
-                "transforms": [
-                    {"DecodeImage": {"img_mode": "BGR", "channel_first": False}},
-                    {"RecAug": None},
-                    {"CTCLabelEncode": None},
-                    {"RecResizeImg": {"image_shape": train_cfg["image_shape"]}},
-                    {"KeepKeys": {"keep_keys": ["image", "label", "length"]}},
-                ],
-            },
-            "loader": {
-                "shuffle": True,
-                "batch_size_per_card": train_cfg["batch_size"],
-                "drop_last": True,
-                "num_workers": train_cfg.get("num_workers", 4),
-            },
+            "Global": global_cfg,
+            "Train": {
+                "dataset": {
+                    "name": "SimpleDataSet",
+                    "data_dir": train_cfg["data_dir"],
+                    "label_file_list": [train_cfg["label_file"]],
+                    "transforms": [
+                        {"DecodeImage": {"img_mode": "BGR", "channel_first": False}},
+                        {"RecAug": None},
+                        {"CTCLabelEncode": None},
+                        {"RecResizeImg": {"image_shape": train_cfg["image_shape"]}},
+                        {"KeepKeys": {"keep_keys": ["image", "label", "length"]}},
+                    ],
+                },
+                "loader": {
+                    "shuffle": True,
+                    "batch_size_per_card": train_cfg["batch_size"],
+                    "drop_last": True,
+                    "num_workers": train_cfg.get("num_workers", 4),
+                },
+            }
         },
-        "train",
+        "Train",
         None,
-        None,
-        None,
+        logger,
     )
     val_dataloader = build_dataloader(
         {
-            "dataset": {
-                "name": "SimpleDataSet",
-                "data_dir": eval_cfg["data_dir"],
-                "label_file_list": [eval_cfg["label_file"]],
-                "transforms": [
-                    {"DecodeImage": {"img_mode": "BGR", "channel_first": False}},
-                    {"CTCLabelEncode": None},
-                    {"RecResizeImg": {"image_shape": eval_cfg["image_shape"]}},
-                    {"KeepKeys": {"keep_keys": ["image", "label", "length"]}},
-                ],
-            },
-            "loader": {
-                "shuffle": False,
-                "batch_size_per_card": eval_cfg["batch_size"],
-                "drop_last": False,
-                "num_workers": eval_cfg.get("num_workers", 4),
-            },
+            "Global": global_cfg,
+            "Eval": {
+                "dataset": {
+                    "name": "SimpleDataSet",
+                    "data_dir": eval_cfg["data_dir"],
+                    "label_file_list": [eval_cfg["label_file"]],
+                    "transforms": [
+                        {"DecodeImage": {"img_mode": "BGR", "channel_first": False}},
+                        {"CTCLabelEncode": None},
+                        {"RecResizeImg": {"image_shape": eval_cfg["image_shape"]}},
+                        {"KeepKeys": {"keep_keys": ["image", "label", "length"]}},
+                    ],
+                },
+                "loader": {
+                    "shuffle": False,
+                    "batch_size_per_card": eval_cfg["batch_size"],
+                    "drop_last": False,
+                    "num_workers": eval_cfg.get("num_workers", 4),
+                },
+            }
         },
-        "eval",
+        "Eval",
         None,
-        None,
-        None,
+        logger,
     )
 
-    post_process = build_post_process({"name": "CTCLabelDecode"})
+    post_process = build_post_process(
+        {"name": "CTCLabelDecode", **{k: v for k, v in global_cfg.items() if k != "max_text_length"}}
+    )
     metric = build_metric({"name": "RecMetric", "main_indicator": "acc"})
 
     # ── Training loop ──────────────────────────────────────────────────

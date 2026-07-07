@@ -67,7 +67,7 @@ class OFRLayer(nn.Layer):
         self.norm2 = AdaLayerNorm(dim, T)
 
     def forward(self, x: paddle.Tensor, t: paddle.Tensor) -> paddle.Tensor:
-        attn_out, _ = self.self_attn(x, x, x)
+        attn_out = self.self_attn(x, x, x)
         x = self.norm1(x + self.drop1(attn_out), t)
         x = self.norm2(x + self.ff(x), t)
         return x

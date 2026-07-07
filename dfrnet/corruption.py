@@ -84,7 +84,7 @@ class OcclusionDiffusionCorruption(nn.Layer):
         sqrt_alpha = alpha_bar_t.sqrt().unsqueeze([1, 2])               # (B,1,1)
         sqrt_one_minus = (1.0 - alpha_bar_t).sqrt().unsqueeze([1, 2])
 
-        eps = paddle.randn_like(F)
+        eps = paddle.randn(F.shape, dtype=F.dtype)
         F_noisy = sqrt_alpha * F + sqrt_one_minus * eps
 
         M_t = self._build_occlusion_mask(B, L, d, t)

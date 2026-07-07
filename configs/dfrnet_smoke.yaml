@@ -23,7 +23,7 @@ Loss:
   blank_idx: 0
 
 Train:
-  epochs: 2               # smoke test only
+  epochs: 15              # smoke test only
   batch_size: 32
   learning_rate: 5.0e-4
   weight_decay: 3.0e-5

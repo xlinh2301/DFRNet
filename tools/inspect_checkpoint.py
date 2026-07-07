@@ -12,7 +12,7 @@ import sys
 
 
 REMAP_PREFIX = {
-    "head.ctc_encoder.": "ctc_encoder.",
+    "head.ctc_encoder.encoder.": "ctc_encoder.",
     "head.ctc_head.fc.": "ctc_fc.",
 }
 

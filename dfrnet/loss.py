@@ -46,8 +46,8 @@ class DFRNetLoss(nn.Layer):
         return F.ctc_loss(
             log_probs,
             labels.cast("int32"),
-            input_lengths.cast("int32"),
-            label_lengths.cast("int32"),
+            input_lengths.cast("int64"),
+            label_lengths.cast("int64"),
             blank=self.blank_idx,
             reduction="mean",
         )
