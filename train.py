@@ -26,6 +26,7 @@ from ppocr.postprocess import build_post_process
 from ppocr.metrics import build_metric
 
 from dfrnet import DFRNet, DFRNetLoss
+from dfrnet.img_augment import random_cutout
 
 
 def build_optimizer(model: DFRNet, cfg: dict) -> optim.Optimizer:
@@ -192,6 +193,8 @@ def main():
     )
     metric = build_metric({"name": "RecMetric", "main_indicator": "acc"})
 
+    cutout_cfg = train_cfg.get("image_cutout")
+
     # ── Training loop ──────────────────────────────────────────────────
     global_step = 0
     for epoch in range(train_cfg["epochs"]):
@@ -199,6 +202,14 @@ def main():
         for batch in train_dataloader:
             images = batch[0]
             labels = batch[1]
+
+            if cutout_cfg:
+                images = random_cutout(
+                    images,
+                    num_patches=cutout_cfg.get("num_patches", 2),
+                    patch_size_frac=cutout_cfg.get("patch_size_frac", 0.15),
+                    p=cutout_cfg.get("p", 0.5),
+                )
 
             out = model(images, labels)
             loss_dict = criterion(
