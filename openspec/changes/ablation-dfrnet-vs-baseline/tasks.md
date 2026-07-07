@@ -1,0 +1,99 @@
+## 1. Baseline config
+
+- [x] 1.1 Create `configs/dfrnet_baseline.yaml` as a copy of
+      `configs/dfrnet_smoke.yaml` with `Loss.lambda_aux: 0.0` and
+      `Loss.beta_rec: 0.0`; `Save.save_dir` pointed at
+      `./outputs/dfrnet_baseline`
+- [x] 1.2 Diff the two configs to confirm only the two loss weights differ
+
+## 2. Baseline training run
+
+- [x] 2.1 Run `python train.py --config configs/dfrnet_baseline.yaml` on
+      `MLR_LinhNX` (15 epochs, matching the DFRNet smoke run)
+- [x] 2.2 Confirm `loss_aux`/`loss_rec` are logged but don't affect the
+      reported total in a way that changes backbone gradients (weights are
+      0) — sanity, not a code change
+- [x] 2.3 Save the final baseline checkpoint path for use in evaluation
+      (`outputs/dfrnet_baseline/epoch_15.pdparams`)
+
+## 3. Evaluation script
+
+- [x] 3.1 Write `tools/eval_ablation.py`: loads a `DFRNet` with a given
+      `--checkpoint`, evaluates against `data/set3/test` +
+      `data/gt/rec/rec_gt_test.txt`, reusing the resize/normalize logic from
+      `tools/baseline_check.py`
+- [x] 3.2 Add `--occlusion {none,light,heavy}`: when not `none`, corrupt
+      `model.encode(images)` output via `OcclusionDiffusionCorruption` at a
+      fixed `t` before `model.ctc_fc()`, bypassing OFR
+- [x] 3.3 Report sequence accuracy + normalized edit distance per run
+
+## 4. Run the 3-way comparison
+
+- [x] 4.1 Run `tools/eval_ablation.py` for all 3 checkpoints (zero-shot
+      PPOCRv5, baseline, DFRNet) × 3 occlusion levels (none/light/heavy) = 9
+      runs, record all results — see results table below
+- [x] 4.2 Compute DFRNet − baseline accuracy delta at each occlusion level
+- [x] 4.3 Write up the verdict: does DFRNet outperform baseline, and is the
+      gap occlusion-specific or uniform — see verdict below
+
+## 5. Follow-up: verify "loss weight too small" hypothesis
+
+- [x] 5.1 Create `configs/dfrnet_highweight.yaml` (10x `lambda_aux`/`beta_rec`:
+      5.0/1.0 vs. 0.5/0.1), same 15 epochs, same data
+- [x] 5.2 Train and evaluate the highweight checkpoint the same way
+      (3 occlusion levels)
+- [x] 5.3 Confirm/reject the hypothesis — see results below
+
+## Results
+
+Test set: `data/set3/test`, 439 samples, `data/gt/rec/rec_gt_test.txt`.
+"Occlusion" = synthetic span-masking via
+`dfrnet.corruption.OcclusionDiffusionCorruption` applied to the *encoder
+output*, feeding directly into the shared CTC head (OFR bypassed in every
+case — this matches how the model is actually deployed, since OFR is
+training-only by design).
+
+| Model                        | clean (acc) | light (acc) | heavy (acc) |
+|-------------------------------|:-----------:|:-----------:|:-----------:|
+| PPOCRv5 zero-shot              | 92.26%      | 2.28%       | 0.00%       |
+| Baseline (fine-tune, no OFR)   | 92.03%      | 3.19%       | 0.00%       |
+| DFRNet (λ_aux=0.5, β_rec=0.1)  | 91.80%      | 3.19%       | 0.00%       |
+| DFRNet (λ_aux=5.0, β_rec=1.0)  | 92.26%      | 2.73%       | 0.00%       |
+
+DFRNet − baseline delta: clean **-0.23%**, light **0.00%**, heavy **0.00%**
+(original weights). At 10x weights: clean **+0.23%**, light **-0.46%**,
+heavy **0.00%** — differences are within run-to-run noise (single seed,
+no averaging), not a consistent DFRNet advantage in either direction.
+
+## Verdict
+
+**No measurable contribution from the OFR branch, at either loss weight,
+within this 15-epoch training budget.** DFRNet does not outperform a
+plain-CTC-fine-tuned baseline on clean input, nor under synthetic
+occlusion — both collapse to the same near-zero accuracy under "heavy"
+occlusion and near-identical low accuracy under "light" occlusion.
+
+**Root cause (not a bug)**: gradients do flow from `L_aux`/`L_rec` back into
+the encoder (corruption is not detached on the input side), so the
+mechanism *could* in principle regularize the encoder — but:
+1. `backbone_lr_ratio: 0.1` limits how much the encoder/backbone can move in
+   ~1150 steps.
+2. Raising `lambda_aux`/`beta_rec` 10x did **not** move occlusion accuracy in
+   a consistent direction, and `loss_aux` itself barely converged either way
+   (~11.5-13 at 10x weight vs. ~7.5-16 at the original weight) — ruling out
+   "loss weight too small" as the explanation.
+3. The more likely explanation: **the training objective and the eval
+   scenario don't match.** OFR is trained to let the shared head decode
+   *OFR-recovered* features (`L_aux` uses `ctc_fc(F_hat)`, not
+   `ctc_fc(corrupted-and-unrecovered)`). Nothing in the loss ever asks the
+   encoder or head to handle raw corrupted features without recovery — but
+   that's exactly what happens at real inference, since OFR is skipped
+   there. The implicit regularization this architecture is banking on
+   doesn't target the actual deployed inference path.
+
+**Recommendation for future work** (out of scope for this change): if OFR's
+contribution is still worth pursuing, the training objective would need to
+directly reward the *encoder* for producing occlusion-robust features
+usable without OFR recovery (e.g. an additional loss term decoding the
+corrupted-but-unrecovered feature through the shared head), rather than only
+rewarding OFR's recovery quality.
