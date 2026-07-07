@@ -34,7 +34,7 @@ def build_optimizer(model: DFRNet, cfg: dict) -> optim.Optimizer:
     OFR + CTC head at full lr.
     """
     base_lr = cfg["learning_rate"]
-    backbone_lr = base_lr * cfg.get("backbone_lr_ratio", 0.1)
+    backbone_lr_ratio = cfg.get("backbone_lr_ratio", 0.1)
     wd = cfg.get("weight_decay", 3e-5)
 
     backbone_neck_params = (
@@ -49,10 +49,14 @@ def build_optimizer(model: DFRNet, cfg: dict) -> optim.Optimizer:
         T_max=cfg["epochs"],
     )
 
+    # NOTE: Paddle's per-param-group "learning_rate" is a *scale* of the
+    # global `learning_rate=scheduler` value, not an absolute rate — pass
+    # ratios here, not absolute lrs (passing base_lr/backbone_lr directly
+    # multiplies them by the scheduler again, shrinking effective lr ~1000x).
     optimizer = optim.AdamW(
         parameters=[
-            {"params": backbone_neck_params, "learning_rate": backbone_lr},
-            {"params": ofr_head_params, "learning_rate": base_lr},
+            {"params": backbone_neck_params, "learning_rate": backbone_lr_ratio},
+            {"params": ofr_head_params, "learning_rate": 1.0},
         ],
         learning_rate=scheduler,
         weight_decay=wd,
