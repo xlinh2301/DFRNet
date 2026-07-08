@@ -185,3 +185,76 @@ occlusion mode (Cutout patches applied to the *test image* before the
 backbone, not to the encoder's feature) to compare imgocc vs. baseline vs.
 DFRNet on equal footing. Not yet implemented — flagged as the next step
 before drawing a conclusion on the image-space-augmentation hypothesis.
+
+## Results: bidirectional refine head vs. 5-mode image occlusion training
+
+Two follow-up architectures, both a genuine departure from OFR (not the
+zero-weight-trick baseline):
+
+- **`refine-head`** (`configs/dfrnet_refine.yaml`): a lightweight
+  bidirectional Transformer (`dfrnet/refine_head.py`) that refines the CTC
+  head's *class-probability* output using a diagonal-masked self-attention
+  (each position sees every other position's prediction but not its own),
+  trained with an auxiliary CTC loss on the refined logits. Unlike OFR, it
+  runs at **both train and inference** — no train/deploy gap.
+- **`occmask`** (`configs/dfrnet_occmask.yaml`): plain CTC baseline (no OFR,
+  no refine head) trained with 5-mode **image-space** occlusion augmentation
+  (`dfrnet/img_augment.py`) — random per-sample choice of top-half,
+  bottom-half, left-half, right-half, or random-pixel masking (severity
+  20-50%) applied to the raw input image before the backbone, testing the
+  "corrupt pixels, not features" hypothesis directly.
+
+`tools/eval_ablation.py` gained matching image-space eval modes
+(`--occlusion img_top/img_bottom/img_left/img_right/img_random_pixels`,
+deterministic full-severity masking) so training-time augmentation and
+eval-time corruption use the identical primitive — an apples-to-apples test,
+closing the methodology gap flagged above.
+
+Full results, 439-sample test set, all models 15 epochs, LR bug fixed:
+
+| Model                         | none  | light | heavy | img_top | img_bottom | img_random | img_left | img_right |
+|---------------------------------|:-----:|:-----:|:-----:|:-------:|:----------:|:----------:|:--------:|:---------:|
+| Baseline (fine-tune, no aug)    | 91.34%| 3.19% | 0.00% | 15.49%  | 23.23%     | 41.69%     | 0.00%    | 10.48%    |
+| DFRNet (OFR, LR fixed)          | 91.57%| 2.28% | 0.00% | 15.03%  | 22.78%     | 41.00%     | 0.00%    | 10.71%    |
+| refine-head                     | 91.80%| 1.82% | 0.00% | 13.67%  | 23.01%     | 38.50%     | **0.00%**| 10.48%    |
+| **occmask (image Cutout mix)**  | 90.43%| 1.82% | 0.00% | **18.45%**| **25.74%**| **47.84%** | 0.23%    | **11.16%**|
+
+*(none/img_top/img_bottom/img_random_pixels = Group A, visual occlusion —
+tests encoder shape-robustness. img_left/img_right = Group B, sequence
+occlusion — whole characters missing, tests contextual imputation.)*
+
+**Group A verdict: the image-space hypothesis is confirmed.** `occmask` is
+the **first model in this entire ablation series to show a real, consistent,
+non-noise improvement** over baseline: +3.0pp img_top, +2.5pp img_bottom,
++6.2pp img_random_pixels — all in the same direction, all clearly outside
+run-to-run noise (unlike every DFRNet/OFR variant, which never moved more
+than ~1pp from baseline in either direction). This is exactly what the
+"corrupt pixels, not features" analysis predicted: training on realistic,
+in-distribution pixel corruption teaches the encoder itself to be more
+robust, no separate refinement module required. Cost: -0.9pp on clean
+accuracy (91.34% → 90.43%), a normal augmentation/clean-accuracy trade-off.
+
+**Group B verdict: the bidirectional-context hypothesis is *not* supported.**
+`refine-head` does not beat baseline or DFRNet at recovering fully-missing
+character sequences — `img_left` is 0.00% for baseline, DFRNet, *and*
+refine-head alike (occmask edges to 0.23%, still effectively zero), and
+`img_right` is a statistical tie across all four models (10.48-11.16%).
+Bidirectional context over CTC probabilities gave no measurable ability to
+infer digits that are visually 100% absent. Most likely explanation: a water
+meter reading has too little sequence-level statistical structure (unlike
+natural-language text, digits don't constrain their neighbors much), so
+there's no real signal for the refine head to learn beyond what it already
+sees in `img_right`/`img_bottom` (where some visual signal survives). This
+doesn't rule out bidirectional refinement being useful for *partial*
+ambiguity (its `img_random_pixels` score, 38.50%, is respectable, just still
+below occmask's 47.84%) — but it does not deliver on the original motivation
+of recovering entirely-occluded digits from context.
+
+**Overall project conclusion**: after the full investigation (checkpoint
+remap bug → optimizer LR bug → feature-space-corruption critique →
+image-space augmentation → bidirectional refinement), the one modification
+that produced a real, reproducible accuracy gain under occlusion was the
+simplest one — ordinary image-space occlusion data augmentation on a plain
+CTC model, no architectural addition at all. OFR and the refine head, the
+two more complex proposed mechanisms, both failed to beat this simple
+baseline.
