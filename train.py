@@ -27,6 +27,7 @@ from ppocr.metrics import build_metric
 
 from dfrnet import DFRNet, DFRNetLoss
 from dfrnet.img_augment import random_cutout, random_occlusion_mix
+from dfrnet.conf_guided_occlusion import confidence_guided_occlude
 
 
 def build_optimizer(model: DFRNet, cfg: dict) -> optim.Optimizer:
@@ -202,6 +203,7 @@ def main():
 
     cutout_cfg = train_cfg.get("image_cutout")
     occ_mix_cfg = train_cfg.get("image_occlusion_mix")
+    confocc_cfg = train_cfg.get("confidence_guided_occlusion")
 
     # ── Training loop ──────────────────────────────────────────────────
     global_step = 0
@@ -223,6 +225,10 @@ def main():
                     images,
                     p=occ_mix_cfg.get("p", 0.5),
                     frac_range=tuple(occ_mix_cfg.get("frac_range", [0.2, 0.5])),
+                )
+            if confocc_cfg and epoch >= confocc_cfg.get("start_epoch", 0):
+                images = confidence_guided_occlude(
+                    model, images, conf_threshold=confocc_cfg.get("conf_threshold", 0.8)
                 )
 
             out = model(images, labels)
