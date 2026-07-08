@@ -50,6 +50,7 @@ from ppocr.modeling.necks.rnn import EncoderWithSVTR
 
 from .corruption import OcclusionDiffusionCorruption
 from .ofr_module import OFRModule
+from .refine_head import BidirectionalRefineHead
 
 
 class DFRNet(nn.Layer):
@@ -77,12 +78,17 @@ class DFRNet(nn.Layer):
         mask_ratio_max: float = 0.5,
         span_len: int = 3,
         train_t_max: int | None = None,
+        use_refine_head: bool = False,
+        refine_d_model: int = 64,
+        refine_nhead: int = 4,
+        refine_depth: int = 2,
         pretrained: str | None = None,
     ):
         super().__init__()
         # cap sampled t during training so OFR never has to invert
         # near-pure-noise corruption (unlearnable in a single feed-forward pass)
         self.train_t_max = train_t_max if train_t_max is not None else T
+        self.use_refine_head = use_refine_head
 
         # ── PPOCRv5 backbone ───────────────────────────────────────────
         cfg = dict(backbone_cfg)
@@ -105,6 +111,15 @@ class DFRNet(nn.Layer):
         )
         self.ofr = OFRModule(dim=feat_dim, nhead=ofr_nhead, depth=ofr_depth, T=T)
         self.T = T
+
+        # ── Optional bidirectional refinement head (runs at inference too) ──
+        if use_refine_head:
+            self.refine_head = BidirectionalRefineHead(
+                num_classes=num_classes,
+                d_model=refine_d_model,
+                nhead=refine_nhead,
+                depth=refine_depth,
+            )
 
         if pretrained is not None:
             self._load_pretrained(pretrained)
@@ -211,7 +226,11 @@ class DFRNet(nn.Layer):
 
         if not self.training:
             logits = self.ctc_fc(F_clean)
-            return F.softmax(logits, axis=2)
+            probs = F.softmax(logits, axis=2)
+            if self.use_refine_head:
+                refined_logits = self.refine_head(probs)
+                probs = F.softmax(refined_logits, axis=2)
+            return probs
 
         B = F_clean.shape[0]
         t = paddle.randint(1, self.train_t_max + 1, shape=[B])
@@ -222,9 +241,13 @@ class DFRNet(nn.Layer):
         logits_main = self.ctc_fc(F_clean)
         logits_aux = self.ctc_fc(F_hat)   # shared head — no new params
 
-        return {
+        out = {
             "logits_main": logits_main,
             "logits_aux": logits_aux,
             "F_clean": F_clean,
             "F_hat": F_hat,
         }
+        if self.use_refine_head:
+            probs_main = F.softmax(logits_main, axis=2)
+            out["logits_refined"] = self.refine_head(probs_main)
+        return out

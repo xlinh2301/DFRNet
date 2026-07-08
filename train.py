@@ -26,7 +26,7 @@ from ppocr.postprocess import build_post_process
 from ppocr.metrics import build_metric
 
 from dfrnet import DFRNet, DFRNetLoss
-from dfrnet.img_augment import random_cutout
+from dfrnet.img_augment import random_cutout, random_occlusion_mix
 
 
 def build_optimizer(model: DFRNet, cfg: dict) -> optim.Optimizer:
@@ -44,6 +44,8 @@ def build_optimizer(model: DFRNet, cfg: dict) -> optim.Optimizer:
     ofr_head_params = (
         list(model.ofr.parameters()) + list(model.ctc_fc.parameters())
     )
+    if getattr(model, "use_refine_head", False):
+        ofr_head_params += list(model.refine_head.parameters())
 
     scheduler = paddle.optimizer.lr.CosineAnnealingDecay(
         learning_rate=base_lr,
@@ -106,6 +108,10 @@ def main():
         mask_ratio_max=model_cfg.get("mask_ratio_max", 0.5),
         span_len=model_cfg.get("span_len", 3),
         train_t_max=model_cfg.get("train_t_max"),
+        use_refine_head=model_cfg.get("use_refine_head", False),
+        refine_d_model=model_cfg.get("refine_d_model", 64),
+        refine_nhead=model_cfg.get("refine_nhead", 4),
+        refine_depth=model_cfg.get("refine_depth", 2),
         pretrained=model_cfg.get("pretrained"),
     )
 
@@ -114,6 +120,7 @@ def main():
         lambda_aux=loss_cfg.get("lambda_aux", 0.5),
         beta_rec=loss_cfg.get("beta_rec", 0.1),
         blank_idx=loss_cfg.get("blank_idx", 0),
+        lambda_refine=loss_cfg.get("lambda_refine", 0.5),
     )
 
     # ── Optimizer ──────────────────────────────────────────────────────
@@ -194,6 +201,7 @@ def main():
     metric = build_metric({"name": "RecMetric", "main_indicator": "acc"})
 
     cutout_cfg = train_cfg.get("image_cutout")
+    occ_mix_cfg = train_cfg.get("image_occlusion_mix")
 
     # ── Training loop ──────────────────────────────────────────────────
     global_step = 0
@@ -210,6 +218,12 @@ def main():
                     patch_size_frac=cutout_cfg.get("patch_size_frac", 0.15),
                     p=cutout_cfg.get("p", 0.5),
                 )
+            if occ_mix_cfg:
+                images = random_occlusion_mix(
+                    images,
+                    p=occ_mix_cfg.get("p", 0.5),
+                    frac_range=tuple(occ_mix_cfg.get("frac_range", [0.2, 0.5])),
+                )
 
             out = model(images, labels)
             loss_dict = criterion(
@@ -218,6 +232,7 @@ def main():
                 out["F_clean"],
                 out["F_hat"],
                 labels,
+                logits_refined=out.get("logits_refined"),
             )
 
             loss = loss_dict["loss"]
@@ -226,13 +241,16 @@ def main():
             optimizer.clear_grad()
 
             if global_step % 50 == 0:
-                print(
+                msg = (
                     f"[epoch {epoch+1}/{train_cfg['epochs']} step {global_step}] "
                     f"loss={loss.item():.4f} "
                     f"main={loss_dict['loss_main'].item():.4f} "
                     f"aux={loss_dict['loss_aux'].item():.4f} "
                     f"rec={loss_dict['loss_rec'].item():.4f}"
                 )
+                if "loss_refine" in loss_dict:
+                    msg += f" refine={loss_dict['loss_refine'].item():.4f}"
+                print(msg)
 
             if global_step % save_cfg["eval_step"] == 0 and global_step > 0:
                 result = evaluate(model, val_dataloader, post_process, metric)

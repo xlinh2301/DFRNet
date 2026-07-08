@@ -38,6 +38,7 @@ from ppocr.postprocess import build_post_process
 from ppocr.metrics import build_metric
 
 from dfrnet import DFRNet
+from dfrnet.img_augment import apply_occlusion_mask, OCCLUSION_MODES
 from baseline_check import load_image
 
 # t values chosen so mask_ratio_max=0.5 scales down to ~20%/~50% of tokens
@@ -47,6 +48,12 @@ OCCLUSION_T = {
     "light": 400,   # (400/1000) * 0.5 ~= 0.20
     "heavy": 1000,  # (1000/1000) * 0.5 = 0.50
 }
+
+# image-space occlusion eval modes: mask half the image (one of 4 sides) or
+# random pixels, applied directly to the input image before the backbone —
+# unlike OCCLUSION_T (feature-space), this tests robustness to the same kind
+# of corruption a Cutout-augmented model was actually trained against.
+IMG_OCCLUSION_MODES = {f"img_{m}": m for m in OCCLUSION_MODES}
 
 
 def build_model(cfg, checkpoint, checkpoint_format):
@@ -61,6 +68,10 @@ def build_model(cfg, checkpoint, checkpoint_format):
         T=model_cfg.get("T", 1000),
         mask_ratio_max=model_cfg.get("mask_ratio_max", 0.5),
         span_len=model_cfg.get("span_len", 3),
+        use_refine_head=model_cfg.get("use_refine_head", False),
+        refine_d_model=model_cfg.get("refine_d_model", 64),
+        refine_nhead=model_cfg.get("refine_nhead", 4),
+        refine_depth=model_cfg.get("refine_depth", 2),
         pretrained=pretrained,
     )
     if checkpoint_format == "trained":
@@ -77,7 +88,17 @@ def main():
     parser.add_argument(
         "--checkpoint-format", choices=["zero-shot", "trained"], required=True
     )
-    parser.add_argument("--occlusion", choices=["none", "light", "heavy"], default="none")
+    parser.add_argument(
+        "--occlusion",
+        choices=["none", "light", "heavy", *IMG_OCCLUSION_MODES.keys()],
+        default="none",
+    )
+    parser.add_argument(
+        "--img-occlusion-frac",
+        type=float,
+        default=0.5,
+        help="severity for img_* occlusion modes (fraction masked)",
+    )
     parser.add_argument(
         "--test-label-file", default="data/gt/rec/rec_gt_test.txt"
     )
@@ -90,7 +111,8 @@ def main():
     image_shape = cfg["Eval"]["image_shape"]
     model = build_model(cfg, args.checkpoint, args.checkpoint_format)
 
-    occ_t = OCCLUSION_T[args.occlusion]
+    is_img_occlusion = args.occlusion in IMG_OCCLUSION_MODES
+    occ_t = OCCLUSION_T.get(args.occlusion) if not is_img_occlusion else None
     corruption = model.corruption if occ_t is not None else None
 
     post_process = build_post_process(
@@ -113,6 +135,11 @@ def main():
         rel_path, gt_text = line.split("\t", 1)
         img = load_image(os.path.join(data_dir, rel_path), image_shape)
         batch = paddle.to_tensor(np.expand_dims(img, 0), dtype="float32")
+
+        if is_img_occlusion:
+            batch = apply_occlusion_mask(
+                batch, IMG_OCCLUSION_MODES[args.occlusion], args.img_occlusion_frac
+            )
 
         with paddle.no_grad():
             if corruption is None:

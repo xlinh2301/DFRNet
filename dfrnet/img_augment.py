@@ -47,3 +47,62 @@ def random_cutout(
             x = random.randint(0, max(0, W - side))
             out[b, :, y : y + side, x : x + side] = 0.0
     return out
+
+
+OCCLUSION_MODES = ("top", "bottom", "left", "right", "random_pixels")
+
+
+def apply_occlusion_mask(
+    images: paddle.Tensor, mode: str, frac: float = 0.5
+) -> paddle.Tensor:
+    """
+    Deterministic single-mode image-space occlusion, applied to the whole
+    batch. Used both as a training augmentation primitive and as a fixed
+    eval-time corruption (same mode/frac for every sample -> reproducible
+    per-mode accuracy).
+
+    Args:
+        images: (B, C, H, W)
+        mode:   one of OCCLUSION_MODES
+        frac:   fraction of the relevant dimension (H for top/bottom, W for
+                left/right, total pixels for random_pixels) to zero out
+    """
+    out = images.clone()
+    B, C, H, W = out.shape
+
+    if mode == "top":
+        out[:, :, : int(frac * H), :] = 0.0
+    elif mode == "bottom":
+        out[:, :, H - int(frac * H) :, :] = 0.0
+    elif mode == "left":
+        out[:, :, :, : int(frac * W)] = 0.0
+    elif mode == "right":
+        out[:, :, :, W - int(frac * W) :] = 0.0
+    elif mode == "random_pixels":
+        keep = (paddle.rand([B, 1, H, W]) >= frac).cast(out.dtype)
+        out = out * keep
+    else:
+        raise ValueError(f"unknown occlusion mode: {mode}")
+    return out
+
+
+def random_occlusion_mix(
+    images: paddle.Tensor,
+    p: float = 0.5,
+    frac_range: tuple[float, float] = (0.2, 0.5),
+) -> paddle.Tensor:
+    """
+    Training-time augmentation: per-sample, with probability `p`, pick one of
+    the 5 occlusion modes at a random severity in `frac_range` and apply it.
+    Varying severity (rather than always exactly 50%) avoids every batch
+    containing samples with total information loss in one half of the image.
+    """
+    out = images.clone()
+    B = out.shape[0]
+    for b in range(B):
+        if random.random() > p:
+            continue
+        mode = random.choice(OCCLUSION_MODES)
+        frac = random.uniform(*frac_range)
+        out[b : b + 1] = apply_occlusion_mask(out[b : b + 1], mode, frac)
+    return out

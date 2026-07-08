@@ -24,11 +24,18 @@ class DFRNetLoss(nn.Layer):
         blank_idx:  CTC blank token index (0 in PaddleOCR by convention)
     """
 
-    def __init__(self, lambda_aux: float = 0.5, beta_rec: float = 0.1, blank_idx: int = 0):
+    def __init__(
+        self,
+        lambda_aux: float = 0.5,
+        beta_rec: float = 0.1,
+        blank_idx: int = 0,
+        lambda_refine: float = 0.5,
+    ):
         super().__init__()
         self.lambda_aux = lambda_aux
         self.beta_rec = beta_rec
         self.blank_idx = blank_idx
+        self.lambda_refine = lambda_refine
 
     def _ctc_loss(self, logits: paddle.Tensor, labels: paddle.Tensor) -> paddle.Tensor:
         """
@@ -59,6 +66,7 @@ class DFRNetLoss(nn.Layer):
         F_clean: paddle.Tensor,
         F_hat: paddle.Tensor,
         labels: paddle.Tensor,
+        logits_refined: paddle.Tensor | None = None,
     ) -> dict:
         l_main = self._ctc_loss(logits_main, labels)
         l_aux = self._ctc_loss(logits_aux, labels)
@@ -66,9 +74,15 @@ class DFRNetLoss(nn.Layer):
         l_rec = F.mse_loss(F_hat, F_clean.detach())
 
         loss = l_main + self.lambda_aux * l_aux + self.beta_rec * l_rec
-        return {
+
+        result = {
             "loss": loss,
             "loss_main": l_main,
             "loss_aux": l_aux,
             "loss_rec": l_rec,
         }
+        if logits_refined is not None:
+            l_refine = self._ctc_loss(logits_refined, labels)
+            result["loss"] = result["loss"] + self.lambda_refine * l_refine
+            result["loss_refine"] = l_refine
+        return result
