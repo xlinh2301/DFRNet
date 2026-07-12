@@ -69,20 +69,31 @@ def load_model():
     return model, post_process
 
 
+def _order_points(pts: np.ndarray) -> np.ndarray:
+    """Return pts in (top-left, top-right, bottom-right, bottom-left) order."""
+    s = pts.sum(axis=1)
+    diff = np.diff(pts, axis=1).ravel()
+    return np.array([
+        pts[np.argmin(s)],    # top-left: min x+y
+        pts[np.argmin(diff)], # top-right: min y-x
+        pts[np.argmax(s)],    # bottom-right: max x+y
+        pts[np.argmax(diff)], # bottom-left: max y-x
+    ], dtype=np.float32)
+
+
 def _obb_crop(img_bgr: np.ndarray, seg: list) -> np.ndarray:
     """Perspective-warp an oriented bounding box region to a flat rectangle."""
-    pts = np.array(seg, dtype=np.float32).reshape(4, 2)
-    # Order: top-left, top-right, bottom-right, bottom-left by angle
-    rect = cv2.minAreaRect(pts)
-    box = cv2.boxPoints(rect).astype(np.float32)
-    w_px, h_px = int(rect[1][0]), int(rect[1][1])
-    if w_px == 0 or h_px == 0:
+    pts = _order_points(np.array(seg, dtype=np.float32).reshape(4, 2))
+    tl, tr, br, bl = pts
+    w = int(max(np.linalg.norm(tr - tl), np.linalg.norm(br - bl)))
+    h = int(max(np.linalg.norm(bl - tl), np.linalg.norm(br - tr)))
+    if w == 0 or h == 0:
         return img_bgr
-    dst = np.array([[0, 0], [w_px - 1, 0], [w_px - 1, h_px - 1], [0, h_px - 1]], dtype=np.float32)
-    M = cv2.getPerspectiveTransform(box, dst)
-    warped = cv2.warpPerspective(img_bgr, M, (w_px, h_px))
+    dst = np.array([[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]], dtype=np.float32)
+    M = cv2.getPerspectiveTransform(pts, dst)
+    warped = cv2.warpPerspective(img_bgr, M, (w, h))
     # Ensure landscape orientation (width >= height) expected by recognizer
-    if h_px > w_px:
+    if h > w:
         warped = cv2.rotate(warped, cv2.ROTATE_90_CLOCKWISE)
     return warped
 
