@@ -41,36 +41,34 @@ function render(items) {
 
     const imgwrap = document.createElement("div");
     imgwrap.className = "imgwrap";
-    imgwrap.innerHTML = `<img src="${item.url}" alt="${item.file_name}" />${segSvg(item.segmentation, item.width, item.height)}`;
-    card.appendChild(imgwrap);
+    imgwrap.innerHTML = `<img src="${item.url}" alt="${item.file_name}" loading="lazy" />${segSvg(item.segmentation, item.width, item.height)}`;
 
-    const fname = document.createElement("div");
-    fname.textContent = item.file_name;
-    fname.style.fontSize = "0.75rem";
-    fname.style.color = "#888";
-    card.appendChild(fname);
-
-    const text = document.createElement("div");
-    text.textContent = `text: "${item.text}"`;
-    card.appendChild(text);
-
-    const conf = document.createElement("div");
-    conf.className = "conf";
-    conf.textContent = `yolo_conf: ${item.yolo_conf ?? "n/a"}  angle: ${item.angle ?? "n/a"}`;
-    card.appendChild(conf);
-
-    const label = document.createElement("label");
     const checkbox = document.createElement("input");
     checkbox.type = "checkbox";
+    checkbox.className = "candidate-select";
     checkbox.checked = selected.has(item.annotation_id);
     checkbox.onchange = () => {
       if (checkbox.checked) selected.add(item.annotation_id);
       else selected.delete(item.annotation_id);
       selectedCount.textContent = `${selected.size} selected`;
     };
-    label.appendChild(checkbox);
-    label.append(" select");
-    card.appendChild(label);
+    imgwrap.appendChild(checkbox);
+    card.appendChild(imgwrap);
+
+    const fname = document.createElement("div");
+    fname.className = "fname";
+    fname.textContent = item.file_name;
+    card.appendChild(fname);
+
+    const text = document.createElement("div");
+    text.className = "gt-text";
+    text.innerHTML = `<b>text</b> "${item.text}"`;
+    card.appendChild(text);
+
+    const conf = document.createElement("div");
+    conf.className = "conf";
+    conf.textContent = `conf ${item.yolo_conf?.toFixed?.(3) ?? "n/a"}  ·  angle ${item.angle ?? "n/a"}`;
+    card.appendChild(conf);
 
     grid.appendChild(card);
   }

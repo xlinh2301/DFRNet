@@ -31,22 +31,22 @@ function render(items) {
 
     const imgwrap = document.createElement("div");
     imgwrap.className = "imgwrap";
-    imgwrap.innerHTML = `<img src="${item.url}" alt="${item.file_name}" />${segSvg(item.segmentation, item.width, item.height)}`;
+    imgwrap.innerHTML = `<img src="${item.url}" alt="${item.file_name}" loading="lazy" />${segSvg(item.segmentation, item.width, item.height)}`;
     card.appendChild(imgwrap);
 
     const fname = document.createElement("div");
+    fname.className = "fname";
     fname.textContent = item.file_name;
-    fname.style.fontSize = "0.75rem";
-    fname.style.color = "#888";
     card.appendChild(fname);
 
     const gt = document.createElement("div");
-    gt.textContent = `GT: "${item.gt_text}"`;
+    gt.className = "gt-text";
+    gt.innerHTML = `<b>GT</b> "${item.gt_text}"`;
     card.appendChild(gt);
 
     const pred = document.createElement("div");
-    pred.textContent = `PPOCRv5: "${item.predicted_text}"`;
-    pred.style.color = "#f66";
+    pred.className = "pred-text";
+    pred.innerHTML = `<b>PPOCRv5</b> "${item.predicted_text}"`;
     card.appendChild(pred);
 
     const row = document.createElement("div");
@@ -57,6 +57,7 @@ function render(items) {
     input.value = item.gt_text;
 
     const saveBtn = document.createElement("button");
+    saveBtn.className = "save-btn";
     saveBtn.textContent = "Save";
     saveBtn.onclick = async () => {
       await fetch(`/api/review/annotations/${item.annotation_id}`, {
@@ -68,6 +69,7 @@ function render(items) {
     };
 
     const delBtn = document.createElement("button");
+    delBtn.className = "del-btn";
     delBtn.textContent = "Delete";
     delBtn.onclick = async () => {
       if (!confirm(`Delete annotation for "${item.file_name}"?`)) return;

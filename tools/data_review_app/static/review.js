@@ -30,13 +30,12 @@ function render(items) {
     const overlays = item.annotations.map(a => segSvg(a.segmentation, item.width, item.height)).join("");
     const imgwrap = document.createElement("div");
     imgwrap.className = "imgwrap";
-    imgwrap.innerHTML = `<img src="${item.url}" alt="${item.file_name}" />${overlays}`;
+    imgwrap.innerHTML = `<img src="${item.url}" alt="${item.file_name}" loading="lazy" />${overlays}`;
     card.appendChild(imgwrap);
 
     const fname = document.createElement("div");
+    fname.className = "fname";
     fname.textContent = item.file_name;
-    fname.style.fontSize = "0.75rem";
-    fname.style.color = "#888";
     card.appendChild(fname);
 
     for (const ann of item.annotations) {
@@ -48,6 +47,7 @@ function render(items) {
       input.value = ann.text;
 
       const saveBtn = document.createElement("button");
+      saveBtn.className = "save-btn";
       saveBtn.textContent = "Save";
       saveBtn.onclick = async () => {
         await fetch(`/api/review/annotations/${ann.annotation_id}`, {
@@ -60,6 +60,7 @@ function render(items) {
       };
 
       const delBtn = document.createElement("button");
+      delBtn.className = "del-btn";
       delBtn.textContent = "Delete";
       delBtn.onclick = async () => {
         if (!confirm(`Delete annotation for "${item.file_name}"?`)) return;

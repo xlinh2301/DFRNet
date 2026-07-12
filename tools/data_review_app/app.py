@@ -274,58 +274,39 @@ def list_eval_mismatches(page: int = 1, page_size: int = 24):
 # ---------------------------------------------------------------------------
 # Supplement API (OBB-sourced candidates)
 # ---------------------------------------------------------------------------
-def _load_obb_predictions() -> dict:
+def _build_candidate_rows_cache() -> list[dict]:
+    """Precompute the full joined OBB-candidate row list once at startup.
+
+    Avoids re-parsing the ~70MB predictions_obb_100k.json and rebuilding the
+    text/conf lookup (91k+ annotations) on every request, which previously
+    made each /api/supplement/candidates call take 3+ seconds.
+    """
     if not OBB_PREDICTIONS_PATH.exists():
-        return {"images": [], "annotations": []}
+        return []
     with open(OBB_PREDICTIONS_PATH, "r", encoding="utf-8") as f:
-        return json.load(f)
+        obb = json.load(f)
 
+    obb_images_by_id = _images_by_id(obb)
+    obb_anns_by_image = _anns_by_image(obb)
 
-def _candidate_text_lookup() -> dict[str, dict]:
-    """file_name -> {text, yolo_conf} from the original 100k e2e label.json."""
     images_by_id = _images_by_id(candidates_coco)
-    lookup: dict[str, dict] = {}
+    text_lookup: dict[str, dict] = {}
     for ann in candidates_coco["annotations"]:
         img = images_by_id.get(ann["image_id"])
         if img is None:
             continue
-        lookup[img["file_name"]] = {
+        text_lookup[img["file_name"]] = {
             "text": ann.get("attributes", {}).get("text", ""),
             "yolo_conf": ann.get("attributes", {}).get("yolo_conf"),
         }
-    return lookup
 
-
-@app.get("/api/supplement/candidates")
-def list_candidates(
-    page: int = 1,
-    page_size: int = 24,
-    sort: str = "yolo_conf",
-    order: str = "desc",
-    min_conf: Optional[float] = None,
-    max_conf: Optional[float] = None,
-):
-    if page < 1 or page_size < 1:
-        raise HTTPException(400, "page and page_size must be >= 1")
-    if order not in ("asc", "desc"):
-        raise HTTPException(400, "order must be 'asc' or 'desc'")
-
-    obb = _load_obb_predictions()
-    obb_images_by_id = _images_by_id(obb)
-    obb_anns_by_image = _anns_by_image(obb)
-    text_lookup = _candidate_text_lookup()
-
-    rows = []
+    rows: list[dict] = []
     for image_id, anns in obb_anns_by_image.items():
         img = obb_images_by_id.get(image_id)
         if img is None:
             continue
         joined = text_lookup.get(img["file_name"], {"text": "", "yolo_conf": None})
         conf = joined["yolo_conf"]
-        if min_conf is not None and (conf is None or conf < min_conf):
-            continue
-        if max_conf is not None and (conf is None or conf > max_conf):
-            continue
         for ann in anns:
             rows.append(
                 {
@@ -342,9 +323,45 @@ def list_candidates(
                     "angle": ann.get("attributes", {}).get("angle"),
                 }
             )
+    return rows
 
-    if sort == "yolo_conf":
-        rows.sort(key=lambda r: (r["yolo_conf"] is None, r["yolo_conf"]), reverse=(order == "desc"))
+
+_candidate_rows_cache: list[dict] = _build_candidate_rows_cache()
+# Pre-sorted by yolo_conf descending — the default/common case needs no sort at request time.
+_candidate_rows_by_conf_desc: list[dict] = sorted(
+    _candidate_rows_cache, key=lambda r: (r["yolo_conf"] is None, r["yolo_conf"]), reverse=True
+)
+
+
+@app.get("/api/supplement/candidates")
+def list_candidates(
+    page: int = 1,
+    page_size: int = 24,
+    sort: str = "yolo_conf",
+    order: str = "desc",
+    min_conf: Optional[float] = None,
+    max_conf: Optional[float] = None,
+):
+    if page < 1 or page_size < 1:
+        raise HTTPException(400, "page and page_size must be >= 1")
+    if order not in ("asc", "desc"):
+        raise HTTPException(400, "order must be 'asc' or 'desc'")
+
+    has_filter = min_conf is not None or max_conf is not None
+    if sort == "yolo_conf" and not has_filter:
+        # Fast path: reuse the pre-sorted cache, just flip direction if needed.
+        rows = _candidate_rows_by_conf_desc if order == "desc" else list(reversed(_candidate_rows_by_conf_desc))
+    else:
+        rows = _candidate_rows_cache
+        if has_filter:
+            rows = [
+                r for r in rows
+                if r["yolo_conf"] is not None
+                and (min_conf is None or r["yolo_conf"] >= min_conf)
+                and (max_conf is None or r["yolo_conf"] <= max_conf)
+            ]
+        if sort == "yolo_conf":
+            rows = sorted(rows, key=lambda r: (r["yolo_conf"] is None, r["yolo_conf"]), reverse=(order == "desc"))
 
     start = (page - 1) * page_size
     end = start + page_size
