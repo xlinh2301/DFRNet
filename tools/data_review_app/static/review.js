@@ -4,10 +4,12 @@ let page = 1;
 const grid = document.getElementById("grid");
 const pageInfo = document.getElementById("pageInfo");
 
-function bboxSvg(bbox, width, height) {
-  const [x, y, w, h] = bbox;
+function segSvg(segmentation, width, height) {
+  const pts = segmentation[0];
+  const points = [];
+  for (let i = 0; i < pts.length; i += 2) points.push(`${pts[i]},${pts[i+1]}`);
   return `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
-    <rect x="${x}" y="${y}" width="${w}" height="${h}" />
+    <polygon points="${points.join(' ')}" />
   </svg>`;
 }
 
@@ -25,7 +27,7 @@ function render(items) {
     const card = document.createElement("div");
     card.className = "card";
 
-    const overlays = item.annotations.map(a => bboxSvg(a.bbox, item.width, item.height)).join("");
+    const overlays = item.annotations.map(a => segSvg(a.segmentation, item.width, item.height)).join("");
     const imgwrap = document.createElement("div");
     imgwrap.className = "imgwrap";
     imgwrap.innerHTML = `<img src="${item.url}" alt="${item.file_name}" />${overlays}`;

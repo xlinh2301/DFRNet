@@ -6,10 +6,12 @@ const grid = document.getElementById("grid");
 const pageInfo = document.getElementById("pageInfo");
 const selectedCount = document.getElementById("selectedCount");
 
-function bboxSvg(bbox, width, height) {
-  const [x, y, w, h] = bbox;
+function segSvg(segmentation, width, height) {
+  const pts = segmentation[0];
+  const points = [];
+  for (let i = 0; i < pts.length; i += 2) points.push(`${pts[i]},${pts[i+1]}`);
   return `<svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
-    <rect x="${x}" y="${y}" width="${w}" height="${h}" />
+    <polygon points="${points.join(' ')}" />
   </svg>`;
 }
 
@@ -39,7 +41,7 @@ function render(items) {
 
     const imgwrap = document.createElement("div");
     imgwrap.className = "imgwrap";
-    imgwrap.innerHTML = `<img src="${item.url}" alt="${item.file_name}" />${bboxSvg(item.bbox, item.width, item.height)}`;
+    imgwrap.innerHTML = `<img src="${item.url}" alt="${item.file_name}" />${segSvg(item.segmentation, item.width, item.height)}`;
     card.appendChild(imgwrap);
 
     const fname = document.createElement("div");

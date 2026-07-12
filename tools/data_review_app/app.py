@@ -156,6 +156,7 @@ def list_review_images(page: int = 1, page_size: int = 24):
                     {
                         "annotation_id": a["id"],
                         "bbox": a["bbox"],
+                        "segmentation": a.get("segmentation", []),
                         "text": a.get("attributes", {}).get("text", ""),
                     }
                     for a in anns
@@ -253,6 +254,7 @@ def list_eval_mismatches(page: int = 1, page_size: int = 24):
                 "height": img["height"],
                 "url": f"/images/test/{file_name}",
                 "bbox": ann["bbox"],
+                "segmentation": ann.get("segmentation", []),
                 "gt_text": gt_text,
                 "predicted_text": pred_text,
             }
