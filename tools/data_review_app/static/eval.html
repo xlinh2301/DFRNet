@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>DATA_COCO PPOCRv5 Mismatches</title>
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <nav>
+    <a href="/static/index.html">Review</a>
+    <a href="/static/eval.html" class="active">Eval</a>
+    <a href="/static/supplement.html">Supplement</a>
+  </nav>
+
+  <h1>PPOCRv5 mismatches</h1>
+  <p id="emptyNote" style="display:none;color:#f90;">
+    No predictions loaded yet (data/predictions_ppocrv5_test.json missing) — run the SLURM job in
+    tools/data_review_app/infer/ first, see infer/README.md.
+  </p>
+
+  <div id="pager">
+    <button id="prevBtn">&laquo; Prev</button>
+    <span id="pageInfo"></span>
+    <button id="nextBtn">Next &raquo;</button>
+  </div>
+
+  <div id="grid" class="grid"></div>
+
+  <script src="/static/eval.js"></script>
+</body>
+</html>
