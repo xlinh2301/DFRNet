@@ -381,6 +381,79 @@ def list_candidates(
     }
 
 
+STAGING_ROOT = DATA_ROOT / "supplement_staging"
+
+
+class StageRequest(BaseModel):
+    annotation_ids: list[int]
+
+
+@app.post("/api/supplement/stage")
+def stage_candidates(body: StageRequest):
+    """Copy selected candidate images (raw, no labels) into a new timestamped
+    staging batch folder for later OBB + text-rec inference and manual
+    verification, before merging into the final test set."""
+    if not body.annotation_ids:
+        raise HTTPException(400, "annotation_ids must not be empty")
+
+    row_by_ann_id = {r["annotation_id"]: r for r in _candidate_rows_cache}
+
+    batch_id = datetime.now().strftime("%Y%m%dT%H%M%S")
+    batch_dir = STAGING_ROOT / batch_id
+    images_dir = batch_dir / "images"
+    images_dir.mkdir(parents=True, exist_ok=True)
+
+    staged, skipped = [], []
+    seen_file_names: set[str] = set()
+
+    for annotation_id in body.annotation_ids:
+        row = row_by_ann_id.get(annotation_id)
+        if row is None:
+            skipped.append({"annotation_id": annotation_id, "reason": "not_found"})
+            continue
+
+        file_name = row["file_name"]
+        if file_name in seen_file_names:
+            skipped.append({"annotation_id": annotation_id, "reason": "duplicate_in_batch"})
+            continue
+        seen_file_names.add(file_name)
+
+        src_path = CANDIDATES_IMAGES_DIR / file_name
+        dst_path = images_dir / file_name
+        if not src_path.exists():
+            skipped.append({"annotation_id": annotation_id, "reason": "source_image_missing"})
+            continue
+        shutil.copy2(src_path, dst_path)
+
+        staged.append(
+            {
+                "annotation_id": annotation_id,
+                "file_name": file_name,
+                "width": row["width"],
+                "height": row["height"],
+                "bbox": row["bbox"],
+                "segmentation": row["segmentation"],
+                "yolo_conf": row["yolo_conf"],
+            }
+        )
+
+    manifest = {
+        "batch_id": batch_id,
+        "created_at": datetime.now().isoformat(),
+        "note": "Raw images only; no verified labels yet. Run OBB + text-rec inference on this batch, then manually verify before merging into DATA_COCO_v2.",
+        "items": staged,
+    }
+    with open(batch_dir / "manifest.json", "w", encoding="utf-8") as f:
+        json.dump(manifest, f, ensure_ascii=False, indent=2)
+
+    return {
+        "batch_id": batch_id,
+        "batch_dir": str(batch_dir),
+        "staged_count": len(staged),
+        "skipped": skipped,
+    }
+
+
 class ImportRequest(BaseModel):
     annotation_ids: list[int]
 

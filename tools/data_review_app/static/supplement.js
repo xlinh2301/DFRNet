@@ -90,18 +90,23 @@ document.getElementById("nextBtn").onclick = () => {
   loadPage();
 };
 
-document.getElementById("importBtn").onclick = async () => {
+document.getElementById("stageBtn").onclick = async () => {
   if (selected.size === 0) return;
-  const res = await fetch("/api/supplement/import", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ annotation_ids: Array.from(selected) }),
-  });
-  const data = await res.json();
-  alert(`Imported: ${data.imported.length}, Skipped: ${data.skipped.length}`);
-  selected.clear();
-  selectedCount.textContent = "0 selected";
-  loadPage();
+  try {
+    const res = await fetch("/api/supplement/stage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ annotation_ids: Array.from(selected) }),
+    });
+    if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+    const data = await res.json();
+    alert(`Staged ${data.staged_count} image(s) into ${data.batch_dir}\nSkipped: ${data.skipped.length}`);
+    selected.clear();
+    selectedCount.textContent = "0 selected";
+    loadPage();
+  } catch (err) {
+    alert(`Stage failed: ${err.message}`);
+  }
 };
 
 loadPage();
