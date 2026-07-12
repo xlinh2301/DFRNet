@@ -60,12 +60,17 @@ function render(items) {
     saveBtn.className = "save-btn";
     saveBtn.textContent = "Save";
     saveBtn.onclick = async () => {
-      await fetch(`/api/review/annotations/${item.annotation_id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: input.value }),
-      });
-      loadPage();
+      try {
+        const res = await fetch(`/api/review/annotations/${item.annotation_id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ text: input.value }),
+        });
+        if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+        loadPage();
+      } catch (err) {
+        alert(`Save failed: ${err.message}`);
+      }
     };
 
     const delBtn = document.createElement("button");
@@ -73,8 +78,13 @@ function render(items) {
     delBtn.textContent = "Delete";
     delBtn.onclick = async () => {
       if (!confirm(`Delete annotation for "${item.file_name}"?`)) return;
-      await fetch(`/api/review/annotations/${item.annotation_id}`, { method: "DELETE" });
-      loadPage();
+      try {
+        const res = await fetch(`/api/review/annotations/${item.annotation_id}`, { method: "DELETE" });
+        if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
+        loadPage();
+      } catch (err) {
+        alert(`Delete failed: ${err.message}`);
+      }
     };
 
     row.appendChild(input);

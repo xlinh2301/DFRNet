@@ -57,8 +57,15 @@ def _test_images_dir() -> Path:
     return _active_coco_dir() / "images" / "test"
 
 
-with open(ORIGINAL_COCO_DIR / "annotations" / "instances_test.json", "r", encoding="utf-8") as f:
-    test_coco = json.load(f)
+# If a working copy (DATA_COCO_v2) already exists from a previous session,
+# resume from it so prior edits/deletes/imports are not lost on restart.
+if (V2_COCO_DIR / "annotations" / "instances_test.json").exists():
+    _using_v2 = True
+    with open(V2_COCO_DIR / "annotations" / "instances_test.json", "r", encoding="utf-8") as f:
+        test_coco = json.load(f)
+else:
+    with open(ORIGINAL_COCO_DIR / "annotations" / "instances_test.json", "r", encoding="utf-8") as f:
+        test_coco = json.load(f)
 
 with open(CANDIDATES_ANN_PATH, "r", encoding="utf-8") as f:
     candidates_coco = json.load(f)
