@@ -120,10 +120,24 @@ def _persist_test_mutation() -> None:
 # ---------------------------------------------------------------------------
 # App
 # ---------------------------------------------------------------------------
+class NoCacheStaticFiles(StaticFiles):
+    """Static file server that disables browser caching.
+
+    This app's HTML/JS/CSS changes frequently during development; default
+    StaticFiles ETag-based caching let browsers keep serving a stale JS file
+    that referenced removed DOM elements, silently crashing the page script.
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-store"
+        return response
+
+
 app = FastAPI(title="DATA_COCO Test Review App")
 
 app.mount("/images/100k", StaticFiles(directory=str(CANDIDATES_IMAGES_DIR)), name="candidate-images")
-app.mount("/static", StaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
+app.mount("/static", NoCacheStaticFiles(directory=str(Path(__file__).parent / "static")), name="static")
 
 
 @app.get("/images/test/{file_name}")
